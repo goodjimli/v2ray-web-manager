@@ -16,7 +16,12 @@
         <relativePath /> <!-- lookup parent from repository -->
     </parent>
     <dependencies>
-
+        <dependency>
+            <groupId>org.projectlombok</groupId>
+            <artifactId>lombok</artifactId>
+            <version>1.18.30</version> <!-- 推荐使用最新稳定版 -->
+            <scope>provided</scope>
+        </dependency>
         <dependency>
             <groupId>org.jctools</groupId>
             <artifactId>jctools-core</artifactId>

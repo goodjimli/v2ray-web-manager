@@ -59,6 +59,10 @@ public class Server extends BaseEntity implements Serializable {
     //默认0
     @Column(columnDefinition="smallint default 64" )
     private Integer alterId=64;
-
+    /**
+     * 返回排序
+     */
+    @Column(  columnDefinition="smallint default 999" )
+    private  Short  orderBy;
 }
 

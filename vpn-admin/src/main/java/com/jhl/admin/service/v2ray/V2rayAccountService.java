@@ -67,6 +67,8 @@ public class V2rayAccountService {
             account.setUuid(uuid);
             accountRepository.save(account);
         }
+        //增加对返回的排序
+        servers.sort(Comparator.comparingInt(Server::getOrderBy));
         List<V2rayAccount> result = new ArrayList<>(servers.size());
         for (Server s : servers) {
             V2rayAccount v2rayAccount = new V2rayAccount();

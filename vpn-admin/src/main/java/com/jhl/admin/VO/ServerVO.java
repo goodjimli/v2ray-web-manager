@@ -53,7 +53,7 @@ public class ServerVO extends BaseEntityVO implements Serializable {
     private String wsPath ="/ws/%s/";
 
     private Integer  alterId=64;
-
+    private  Short  orderBy;
 
 }
 
