@@ -62,8 +62,8 @@ public class MonitorService {
         log.info("TrafficController:{},ReporterQueue:{},ConnectionPool:{},AccountCache:{}",
                 TrafficControllerCache.getSize(), taskService.getQueueSize(),
                 ConnectionStatsCache.getSize(), proxyAccountService.getSize());
-        log.info("netty是否使用直接内存:" + PlatformDependent.directBufferPreferred() + ",使用量(-1为无法探知)B:"
-                + PlatformDependent.usedDirectMemory());
+        log.info("netty是否使用直接内存:" + PlatformDependent.directBufferPreferred() + ",maxDirectMemoryB:"
+                + PlatformDependent.maxDirectMemory());
 
         log.info("UnpooledByteBufAllocator metric:{}",    UnpooledByteBufAllocator.DEFAULT.metric().toString());
         log.info(" PooledByteBufAllocator metric:{}", PooledByteBufAllocator.DEFAULT.metric().toString());
