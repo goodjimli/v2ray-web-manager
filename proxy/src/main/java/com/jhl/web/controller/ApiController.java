@@ -1,9 +1,12 @@
 package com.jhl.web.controller;
 
+import com.jhl.common.cache.TrafficControllerCache;
+import com.jhl.common.pojo.ProxyAccountWrapper;
 import com.jhl.web.service.ProxyAccountService;
 import com.jhl.v2ray.service.V2rayService;
 import com.ljh.common.model.ProxyAccount;
 import com.ljh.common.model.Result;
+import io.netty.handler.traffic.GlobalTrafficShapingHandler;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Controller;
@@ -30,6 +33,17 @@ public class ApiController {
             String accountNo = proxyAccount.getAccountNo();
             proxyAccountService.rmProxyAccountCache(accountNo,proxyAccount.getHost());
             v2rayService.rmProxyAccount(proxyAccount.getV2rayHost(), proxyAccount.getV2rayManagerPort(), proxyAccount);
+            //重新设置Qos
+            GlobalTrafficShapingHandler globalTrafficShapingHandler = TrafficControllerCache.getGlobalTrafficShapingHandler(accountNo);
+            ProxyAccountWrapper newProxyAccount = proxyAccountService.getProxyAccount(accountNo, proxyAccount.getHost());
+            if (globalTrafficShapingHandler != null && newProxyAccount !=null) {
+                long readLimit = newProxyAccount.getUpTrafficLimit() * 1000;
+                long writeLimit = newProxyAccount.getDownTrafficLimit() * 1000;
+                globalTrafficShapingHandler.setReadLimit(readLimit);
+                globalTrafficShapingHandler.setWriteLimit(writeLimit);
+            }
+
+        log.info("执行删除账号操作accountNo:{},host:{}",accountNo,proxyAccount.getHost());
         } catch (Exception e) {
             log.error("rmAccount error :{}", e.getLocalizedMessage());
             return Result.builder().code(500).message(e.getMessage()).build();
