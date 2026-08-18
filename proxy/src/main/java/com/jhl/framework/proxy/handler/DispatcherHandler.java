@@ -127,7 +127,7 @@ public class DispatcherHandler extends ChannelInboundHandlerAdapter {
 
 
         if (ConnectionStatsCache.getByHost(accountNo, host) < 1) {
-            GlobalTrafficShapingHandler globalTrafficShapingHandler = TrafficControllerCache.getGlobalTrafficShapingHandler(getAccountId());
+            GlobalTrafficShapingHandler globalTrafficShapingHandler = TrafficControllerCache.getGlobalTrafficShapingHandler(accountNo);
             if (globalTrafficShapingHandler == null) return;
             TrafficCounter trafficCounter = globalTrafficShapingHandler.trafficCounter();
             long writtenBytes = trafficCounter.cumulativeWrittenBytes();
@@ -136,7 +136,7 @@ public class DispatcherHandler extends ChannelInboundHandlerAdapter {
             reportFlowStat(writtenBytes, readBytes);
             log.info("账号:{},当前服务器完全断开连接,累计字节:{}B", getAccountId(), writtenBytes + readBytes);
             //   log.info("当前{},累计读字节:{}", accountNo, readBytes);
-            TrafficControllerCache.releaseGroupGlobalTrafficShapingHandler(getAccountId());
+            TrafficControllerCache.releaseGroupGlobalTrafficShapingHandler(accountNo);
             // ConnectionStatsService.delete(getAccountId());
         }
 
@@ -176,16 +176,17 @@ public class DispatcherHandler extends ChannelInboundHandlerAdapter {
         }
         //step2
         try {
+            long start = System.currentTimeMillis();
             // 获取proxyAccount
             ProxyAccountWrapper proxyAccount = getProxyAccount();
 
             if (proxyAccount == null || isFull(proxyAccount)) {
                     throw new IllegalAccessException("获取不到账号或者连接数已经满");
             }
-            log.info("当前账号:{},连接数:{},服务器连接数:{},全局连接数:{}", getAccountId(),
+            log.info("握手阶段>>>当前账号:{},连接数:{},服务器连接数:{},全局连接数:{},getProxyAccount():{}ms", getAccountId(),
                     ConnectionStatsCache.getByHost(accountNo, host),
                     ConnectionStatsCache.getBySeverInternal(accountNo)
-                    , ConnectionStatsCache.getByGlobal(accountNo));
+                    , ConnectionStatsCache.getByGlobal(accountNo),System.currentTimeMillis()-start);
             proxyIp = proxyAccount.getProxyIp();
             attachTrafficController(ctx, proxyAccount);
 
@@ -289,7 +290,7 @@ public class DispatcherHandler extends ChannelInboundHandlerAdapter {
         //触发最大连接数，惩罚性减低连接数1小时
         //加入流量控制
         //保持对全局的控制，不修改key
-        GlobalTrafficShapingHandler orSetGroupGlobalTrafficShapingHandler = TrafficControllerCache.putIfAbsent(getAccountId(), ctx.executor(), readLimit, writeLimit);
+        GlobalTrafficShapingHandler orSetGroupGlobalTrafficShapingHandler = TrafficControllerCache.putIfAbsent(accountNo, ctx.executor(), readLimit, writeLimit);
         //因为没有fireChannel
         ctx.pipeline().addFirst(orSetGroupGlobalTrafficShapingHandler);
     }
@@ -428,8 +429,9 @@ public class DispatcherHandler extends ChannelInboundHandlerAdapter {
 
 
         if (ConnectionStatsCache.getByHost(accountNo, host) < 1) return;
-        TrafficCounter trafficCounter = TrafficControllerCache.getGlobalTrafficShapingHandler(getAccountId()).trafficCounter();
-        if (System.currentTimeMillis() - trafficCounter.lastCumulativeTime() >= MAX_INTERVAL_REPORT_TIME_MS) {
+        TrafficCounter trafficCounter = TrafficControllerCache.getGlobalTrafficShapingHandler(accountNo).trafficCounter();
+        long start = System.currentTimeMillis();
+        if ( start- trafficCounter.lastCumulativeTime() >= MAX_INTERVAL_REPORT_TIME_MS) {
 
             synchronized (SynchronousPoolUtils.getWeakReference(accountNo + ":reportStat")) {
                 if (System.currentTimeMillis() - trafficCounter.lastCumulativeTime() >= MAX_INTERVAL_REPORT_TIME_MS) {
@@ -438,7 +440,7 @@ public class DispatcherHandler extends ChannelInboundHandlerAdapter {
                     reportFlowStat(writtenBytes, readBytes);
                     //重置
                     trafficCounter.resetCumulativeTime();
-                    log.info("账号:{},连接超过5分钟.上传分段流量统计数据:{}B", getAccountId(), writtenBytes + readBytes);
+                    log.info("账号:{},连接超过5分钟.上传分段流量统计数据:{}B,耗时:{}ms", getAccountId(), writtenBytes + readBytes,System.currentTimeMillis()-start);
                 }
 
             }
