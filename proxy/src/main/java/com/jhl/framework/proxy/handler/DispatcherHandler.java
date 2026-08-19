@@ -182,8 +182,11 @@ public class DispatcherHandler extends ChannelInboundHandlerAdapter {
             // 获取proxyAccount
             ProxyAccountWrapper proxyAccount = getProxyAccount();
 
+            // 获取不到账号 ，断开连接
             if (proxyAccount == null || isFull(proxyAccount)) {
-                    throw new IllegalAccessException("获取不到账号或者连接数已经满");
+                release(handshakeByteBuf);
+                closeOnFlush(ctx.channel(),outboundChannel);
+                return;
             }
             log.info("握手阶段>>>当前账号:{},连接数:{},服务器连接数:{},全局连接数:{},getProxyAccount():{}ms", getAccountId(),
                     ConnectionStatsCache.getByHost(accountNo, host),
@@ -199,6 +202,7 @@ public class DispatcherHandler extends ChannelInboundHandlerAdapter {
             release(handshakeByteBuf);
             closeOnFlush(ctx.channel(),outboundChannel);
         } finally {
+
             isHandshaking = false;
         }
     }
@@ -271,7 +275,7 @@ public class DispatcherHandler extends ChannelInboundHandlerAdapter {
     private ProxyAccountWrapper getProxyAccount() {
         ProxyAccountWrapper proxyAccount = proxyAccountService.getProxyAccount(accountNo, host);
         if (proxyAccount.getCode() !=200) {
-            log.warn("获取不到账号{}失败,code:{},message:{}", accountNo, proxyAccount.getCode(), proxyAccount.getMessage());
+            log.warn("账号{}获取失败,code:{},message:{}", accountNo, proxyAccount.getCode(), proxyAccount.getMessage());
             //ReferenceCountUtil.release(handshakeByteBuf);
             //  closeOnFlush(ctx.channel());
             return null;
