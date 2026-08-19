@@ -19,11 +19,13 @@ import io.netty.buffer.ByteBuf;
 import io.netty.buffer.PooledByteBufAllocator;
 import io.netty.buffer.Unpooled;
 import io.netty.channel.*;
+import io.netty.channel.nio.NioEventLoopGroup;
 import io.netty.channel.socket.SocketChannel;
 import io.netty.channel.socket.nio.NioSocketChannel;
 import io.netty.handler.traffic.GlobalTrafficShapingHandler;
 import io.netty.handler.traffic.TrafficCounter;
 import io.netty.util.ReferenceCountUtil;
+import io.netty.util.concurrent.DefaultThreadFactory;
 import lombok.extern.slf4j.Slf4j;
 
 import java.io.IOException;
@@ -268,8 +270,8 @@ public class DispatcherHandler extends ChannelInboundHandlerAdapter {
 
     private ProxyAccountWrapper getProxyAccount() {
         ProxyAccountWrapper proxyAccount = proxyAccountService.getProxyAccount(accountNo, host);
-        if (proxyAccount == null) {
-            log.warn("获取不到账号。。。");
+        if (proxyAccount.getCode() !=200) {
+            log.warn("获取不到账号{}失败,code:{},message:{}", accountNo, proxyAccount.getCode(), proxyAccount.getMessage());
             //ReferenceCountUtil.release(handshakeByteBuf);
             //  closeOnFlush(ctx.channel());
             return null;
@@ -299,7 +301,7 @@ public class DispatcherHandler extends ChannelInboundHandlerAdapter {
      * 发送握手数据，并且提升为ws协议
      */
     private void sendNewPackageToClient(ChannelHandlerContext ctx, final ByteBuf handshakeByteBuf, Channel inboundChannel, ProxyAccount proxyAccount) {
-        Bootstrap client = NettyClientFactory.getClient(inboundChannel.eventLoop());
+        Bootstrap client = NettyClientFactory.getClient();
         ChannelFuture f = client.connect(proxyAccount.getV2rayHost(), proxyAccount.getV2rayPort());
         outboundChannel = f.channel();
         outboundChannel.pipeline().addLast(new ReceiverHandler(inboundChannel));
@@ -342,13 +344,13 @@ public class DispatcherHandler extends ChannelInboundHandlerAdapter {
 
     private static class NettyClientFactory {
         private static Bootstrap b = null;
-
-        public static Bootstrap getClient(EventLoop eventLoop) {
+        private static final EventLoopGroup clientGroup = new NioEventLoopGroup(0, new DefaultThreadFactory("client"));
+        public static Bootstrap getClient() {
             if (b != null) return b;
             synchronized (NettyClientFactory.class) {
                 if (b != null) return b;
                 b = new Bootstrap();
-                b.group(eventLoop)
+                b.group(clientGroup)
                         .channel(NioSocketChannel.class).handler(new ChannelInitializer<SocketChannel>() {
 
                     @Override
