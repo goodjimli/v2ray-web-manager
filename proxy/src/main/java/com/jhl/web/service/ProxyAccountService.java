@@ -47,12 +47,7 @@ public class ProxyAccountService {
      */
     private final Cache<String, AtomicInteger> REQUEST_ERROR_COUNT = CacheBuilder.newBuilder().maximumSize(1000).expireAfterWrite(2, TimeUnit.MINUTES).build();
 
-    public void addOrUpdate(ProxyAccountWrapper proxyAccount) {
-        if (null == proxyAccount || proxyAccount.getAccountId() == null
-        ) throw new NullPointerException("ProxyAccountWrapper is null");
 
-        PA_MAP.put(getKey(proxyAccount.getAccountNo(), proxyAccount.getHost()), proxyAccount);
-    }
 
     /**
      * 如何缓存没有需要获得账号基本的锁，然后向远程请求数据。
@@ -71,6 +66,10 @@ public class ProxyAccountService {
                 if (proxyAccount != null && proxyAccount.getCode()==200 ) {return proxyAccount;}
                 //远程请求，获取信息
                 proxyAccount = getRemotePAccount(accountNo, host);
+                proxyAccount.setAccountNo(accountNo);
+                proxyAccount.setHost(host);
+                proxyAccount.setVersion(System.currentTimeMillis());
+                PA_MAP.put(getKey(accountNo, host), proxyAccount);
                 //如果获取不到账号，增加错误次数
                 if (proxyAccount.getCode() !=200) {
                     AtomicInteger counter = REQUEST_ERROR_COUNT.getIfPresent(accountNo);
@@ -80,8 +79,7 @@ public class ProxyAccountService {
                         REQUEST_ERROR_COUNT.put(accountNo, new AtomicInteger(1));
                     }
                 } else {
-                    proxyAccount.setVersion(System.currentTimeMillis());
-                    addOrUpdate(proxyAccount);
+
                     try {
                         //确保存在账号
                         v2rayService.addProxyAccount(proxyAccount.getV2rayHost(), proxyAccount.getV2rayManagerPort(), proxyAccount);
