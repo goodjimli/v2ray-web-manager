@@ -60,7 +60,7 @@ public class DispatcherHandler extends ChannelInboundHandlerAdapter {
     private Long version = null;
 
     private String proxyIp = null;
-
+    private ProxyAccountWrapper proxyAccount =null;
     public DispatcherHandler(ProxyConstant proxyConstant, ProxyAccountService proxyAccountService) {
         this.proxyConstant = proxyConstant;
         this.proxyAccountService = proxyAccountService;
@@ -81,7 +81,7 @@ public class DispatcherHandler extends ChannelInboundHandlerAdapter {
 
                 writeToOutBoundChannel(msg, ctx);
                 //异步
-                ConnectionStatsCache.reportConnectionNum(accountNo, proxyIp);
+                //ConnectionStatsCache.reportConnectionNum(accountNo, proxyIp);
                 //异步
                 reportFlowStat();
             } catch (Exception e) {
@@ -116,7 +116,7 @@ public class DispatcherHandler extends ChannelInboundHandlerAdapter {
             closeOnFlush(outboundChannel);
         }
 
-        if (accountNo == null) return;
+        if (accountNo == null || proxyAccount==null) return;
 
         //减少channel 引用计数
         ConnectionStatsCache.decrement(accountNo, host);
@@ -180,7 +180,7 @@ public class DispatcherHandler extends ChannelInboundHandlerAdapter {
         try {
             long start = System.currentTimeMillis();
             // 获取proxyAccount
-            ProxyAccountWrapper proxyAccount = getProxyAccount();
+             proxyAccount = getProxyAccount();
 
             // 获取不到账号 ，断开连接
             if (proxyAccount == null || isFull(proxyAccount)) {
@@ -194,7 +194,6 @@ public class DispatcherHandler extends ChannelInboundHandlerAdapter {
                     , ConnectionStatsCache.getByGlobal(accountNo),System.currentTimeMillis()-start);
             proxyIp = proxyAccount.getProxyIp();
             attachTrafficController(ctx, proxyAccount);
-
             sendNewPackageToClient(ctx, handshakeByteBuf, ctx.channel(), proxyAccount);
 
         } catch (Exception e) {
