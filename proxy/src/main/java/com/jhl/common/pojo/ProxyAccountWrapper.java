@@ -14,6 +14,8 @@ public class ProxyAccountWrapper extends ProxyAccount {
      */
     private  Long version;
 
+    private Integer code = 100;
+    private String message ="默认";
 
 
 }
