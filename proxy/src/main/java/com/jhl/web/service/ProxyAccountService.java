@@ -16,6 +16,7 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestTemplate;
 
 import java.util.HashMap;
+import java.util.Objects;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -55,23 +56,23 @@ public class ProxyAccountService {
 
     /**
      * 如何缓存没有需要获得账号基本的锁，然后向远程请求数据。
-     *
-
+     * @return ProxyAccountWrapper not null ,code 200为正常返回，非200 为异常情况 。message 为原因
      */
     public ProxyAccountWrapper getProxyAccount(String accountNo, String host) {
         ProxyAccountWrapper proxyAccount = PA_MAP.getIfPresent(getKey(accountNo, host));
 
+        proxyAccount=Objects.isNull(proxyAccount)?new  ProxyAccountWrapper():proxyAccount;
+
         AtomicInteger reqCountObj = REQUEST_ERROR_COUNT.getIfPresent(accountNo);
         int reqCount = reqCountObj == null ? 0 : reqCountObj.get();
-        if (proxyAccount == null && reqCount < BEGIN_BLOCK) {
+        if ( proxyAccount.getCode() !=200 && reqCount < BEGIN_BLOCK) {
             synchronized (SynchronousPoolUtils.getWeakReference(getKey(accountNo, host + ":getRemotePAccount"))) {
                 proxyAccount = PA_MAP.getIfPresent(getKey(accountNo, host));
-                if (proxyAccount != null) return proxyAccount;
+                if (proxyAccount != null && proxyAccount.getCode()==200 ) {return proxyAccount;}
                 //远程请求，获取信息
                 proxyAccount = getRemotePAccount(accountNo, host);
-                if (proxyAccount != null) proxyAccount.setVersion(System.currentTimeMillis());
                 //如果获取不到账号，增加错误次数
-                if (proxyAccount == null) {
+                if (proxyAccount.getCode() !=200) {
                     AtomicInteger counter = REQUEST_ERROR_COUNT.getIfPresent(accountNo);
                     if (counter != null) {
                         counter.addAndGet(1);
@@ -79,6 +80,7 @@ public class ProxyAccountService {
                         REQUEST_ERROR_COUNT.put(accountNo, new AtomicInteger(1));
                     }
                 } else {
+                    proxyAccount.setVersion(System.currentTimeMillis());
                     addOrUpdate(proxyAccount);
                     try {
                         //确保存在账号
@@ -101,18 +103,25 @@ public class ProxyAccountService {
         HashMap<String, Object> kvMap = Maps.newHashMap();
         kvMap.put("accountNo", accountNo);
         kvMap.put("domain", host);
+        ProxyAccountWrapper proxyAccountWrapper = new ProxyAccountWrapper();
         ResponseEntity<Result> entity = restTemplate.getForEntity(managerConstant.getGetProxyAccountUrl(),
                 Result.class, kvMap);
         if (!entity.getStatusCode().is2xxSuccessful()) {
             log.error("获取pAccount 错误:{}", entity);
-            return null;
+            proxyAccountWrapper.setCode(entity.getStatusCode().value());
+            proxyAccountWrapper.setMessage(entity.getStatusCode().getReasonPhrase());
+            return  proxyAccountWrapper;
         }
         Result result = entity.getBody();
         if (result ==null || result.getCode() != 200) {
             log.warn("getRemotePAccount  error:{}", JSON.toJSONString(result));
-            return null;
+            proxyAccountWrapper.setCode(result !=null ? result.getCode():500);
+            proxyAccountWrapper.setMessage(result !=null ? result.getMessage():"内部错误");
+            return proxyAccountWrapper;
         }
-        return JSON.parseObject(JSON.toJSONString(result.getObj()), ProxyAccountWrapper.class);
+         proxyAccountWrapper = JSON.parseObject(JSON.toJSONString(result.getObj()), ProxyAccountWrapper.class);
+        proxyAccountWrapper.setCode(result.getCode());
+        return proxyAccountWrapper;
     }
 
     public void rmProxyAccountCache(String accountNo, String host) {
