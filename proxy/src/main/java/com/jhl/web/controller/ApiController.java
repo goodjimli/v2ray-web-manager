@@ -36,7 +36,7 @@ public class ApiController {
             //重新设置Qos
             GlobalTrafficShapingHandler globalTrafficShapingHandler = TrafficControllerCache.getGlobalTrafficShapingHandler(accountNo);
             ProxyAccountWrapper newProxyAccount = proxyAccountService.getProxyAccount(accountNo, proxyAccount.getHost());
-            if (globalTrafficShapingHandler != null && newProxyAccount !=null) {
+            if (globalTrafficShapingHandler != null && newProxyAccount.getCode()==200) {
                 long readLimit = newProxyAccount.getUpTrafficLimit() * 1000;
                 long writeLimit = newProxyAccount.getDownTrafficLimit() * 1000;
                 globalTrafficShapingHandler.setReadLimit(readLimit);
