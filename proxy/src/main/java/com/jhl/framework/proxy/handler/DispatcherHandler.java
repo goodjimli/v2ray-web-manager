@@ -25,7 +25,9 @@ import io.netty.channel.socket.nio.NioSocketChannel;
 import io.netty.handler.traffic.GlobalTrafficShapingHandler;
 import io.netty.handler.traffic.TrafficCounter;
 import io.netty.util.ReferenceCountUtil;
+import io.netty.util.concurrent.DefaultEventExecutorGroup;
 import io.netty.util.concurrent.DefaultThreadFactory;
+import io.netty.util.concurrent.EventExecutorGroup;
 import lombok.extern.slf4j.Slf4j;
 
 import java.io.IOException;
@@ -41,30 +43,39 @@ public class DispatcherHandler extends ChannelInboundHandlerAdapter {
 
     private static final String HOST = "HOST";
     private static final Long MAX_INTERVAL_REPORT_TIME_MS = 1000 * 60 * 5L;
+    // 跑业务、阻塞任务线程
+    private static final EventExecutorGroup businessGroup =
+            new DefaultEventExecutorGroup(4,new DefaultThreadFactory("buz-"));
     /**
      * proxy端配置数据
      */
     final ProxyConstant proxyConstant;
-
-
+    private final ProxyAccountService proxyAccountService;
     private Channel outboundChannel;
-
     private String accountNo;
-
-    private ProxyAccountService proxyAccountService;
-
     private String host;
-
     private boolean isHandshaking = true;
-
     private Long version = null;
-
     private String proxyIp = null;
-    private ProxyAccountWrapper proxyAccount =null;
+    private ProxyAccountWrapper proxyAccount = null;
+
     public DispatcherHandler(ProxyConstant proxyConstant, ProxyAccountService proxyAccountService) {
         this.proxyConstant = proxyConstant;
         this.proxyAccountService = proxyAccountService;
 
+    }
+
+    /**
+     * Closes the specified channel after all queued write requests are flushed.
+     */
+    static void closeOnFlush(Channel... chs) {
+        if (chs == null) return;
+
+        for (Channel ch : chs) {
+            if (ch != null && ch.isActive()) {
+                ch.writeAndFlush(Unpooled.EMPTY_BUFFER).addListener(ChannelFutureListener.CLOSE);
+            }
+        }
     }
 
     @Override
@@ -75,24 +86,23 @@ public class DispatcherHandler extends ChannelInboundHandlerAdapter {
             return;
         }
 
-            try {
-                if (proxyAccountService.interrupted(accountNo, host, version))
-                    throw new ReleaseDirectMemoryException("【当前版本已经更新】抛出异常。统一内存释放");
+        try {
+            if (proxyAccountService.interrupted(accountNo, host, version))
+                throw new ReleaseDirectMemoryException("【当前版本已经更新】抛出异常。统一内存释放");
 
-                writeToOutBoundChannel(msg, ctx);
-                //异步
-                //ConnectionStatsCache.reportConnectionNum(accountNo, proxyIp);
-                //异步
-                reportFlowStat();
-            } catch (Exception e) {
-                if (!(e instanceof ReleaseDirectMemoryException)) {
-                    log.error("数据交互发生异常：", e);
-                }
-                release((ByteBuf) msg);
-                closeOnFlush(ctx.channel(),outboundChannel);
+            writeToOutBoundChannel(msg, ctx);
+            //异步
+            //ConnectionStatsCache.reportConnectionNum(accountNo, proxyIp);
+            //异步
+            businessGroup.submit(()-> reportFlowStat());
+        } catch (Exception e) {
+            if (!(e instanceof ReleaseDirectMemoryException)) {
+                log.error("数据交互发生异常：", e);
             }
+            release((ByteBuf) msg);
+            closeOnFlush(ctx.channel(), outboundChannel);
 
-
+        }
 
 
     }
@@ -107,7 +117,7 @@ public class DispatcherHandler extends ChannelInboundHandlerAdapter {
     public void exceptionCaught(ChannelHandlerContext ctx, Throwable cause) {
         if (!(cause instanceof IOException)) log.error("exceptionCaught:", cause);
 
-        closeOnFlush(ctx.channel(),outboundChannel);
+        closeOnFlush(ctx.channel(), outboundChannel);
     }
 
     @Override
@@ -116,7 +126,7 @@ public class DispatcherHandler extends ChannelInboundHandlerAdapter {
             closeOnFlush(outboundChannel);
         }
 
-        if (accountNo == null || proxyAccount==null) return;
+        if (accountNo == null || proxyAccount == null) return;
 
         //减少channel 引用计数
         ConnectionStatsCache.decrement(accountNo, host);
@@ -170,40 +180,50 @@ public class DispatcherHandler extends ChannelInboundHandlerAdapter {
             if (!(e instanceof ReleaseDirectMemoryException))
                 log.warn("解析阶段发生错误:{},e:{}", ((ByteBuf) msg).toString(Charset.defaultCharset()), e.getLocalizedMessage());
 
-            closeOnFlush(ctx.channel(),outboundChannel);
+            closeOnFlush(ctx.channel(), outboundChannel);
             return;
         } finally {
             //释放握手数据，防止内存溢出
             ReferenceCountUtil.release(msg);
         }
-        //step2
-        try {
-            long start = System.currentTimeMillis();
+
+        // 防止阻塞netty work 线程
+        businessGroup.submit(() -> {
+            //step2
             // 获取proxyAccount
-             proxyAccount = getProxyAccount();
 
-            // 获取不到账号 ，断开连接
-            if (proxyAccount == null || isFull(proxyAccount)) {
-                release(handshakeByteBuf);
-                closeOnFlush(ctx.channel(),outboundChannel);
-                return;
-            }
-            log.info("握手阶段>>>当前账号:{},连接数:{},服务器连接数:{},全局连接数:{},getProxyAccount():{}ms", getAccountId(),
-                    ConnectionStatsCache.getByHost(accountNo, host),
-                    ConnectionStatsCache.getBySeverInternal(accountNo)
-                    , ConnectionStatsCache.getByGlobal(accountNo),System.currentTimeMillis()-start);
-            proxyIp = proxyAccount.getProxyIp();
-            attachTrafficController(ctx, proxyAccount);
-            sendNewPackageToClient(ctx, handshakeByteBuf, ctx.channel(), proxyAccount);
+            long start = System.currentTimeMillis();
+            // 会阻塞
+            proxyAccount = getProxyAccount();
+            //  需要反面会netty线程
+            ctx.executor().execute(() -> {
+                try {
+                    // 获取不到账号 ，断开连接
+                    if (proxyAccount == null || isFull(proxyAccount)) {
+                        release(handshakeByteBuf);
+                        closeOnFlush(ctx.channel(), outboundChannel);
+                        return;
+                    }
+                    log.info("握手阶段>>>当前账号:{},连接数:{},服务器连接数:{},全局连接数:{},getProxyAccount():{}ms", getAccountId(),
+                            ConnectionStatsCache.getByHost(accountNo, host),
+                            ConnectionStatsCache.getBySeverInternal(accountNo)
+                            , ConnectionStatsCache.getByGlobal(accountNo), System.currentTimeMillis() - start);
+                    proxyIp = proxyAccount.getProxyIp();
+                    attachTrafficController(ctx, proxyAccount);
+                    sendNewPackageToClient(ctx, handshakeByteBuf, ctx.channel(), proxyAccount);
+                } catch (Exception e) {
+                    log.error("建立与v2ray连接阶段发送错误", e);
+                    release(handshakeByteBuf);
+                    closeOnFlush(ctx.channel(), outboundChannel);
+                } finally {
 
-        } catch (Exception e) {
-            log.error("建立与v2ray连接阶段发送错误", e);
-            release(handshakeByteBuf);
-            closeOnFlush(ctx.channel(),outboundChannel);
-        } finally {
+                    isHandshaking = false;
+                }
+            });
 
-            isHandshaking = false;
-        }
+        });
+
+
     }
 
     private void release(ByteBuf msg) {
@@ -273,7 +293,7 @@ public class DispatcherHandler extends ChannelInboundHandlerAdapter {
 
     private ProxyAccountWrapper getProxyAccount() {
         ProxyAccountWrapper proxyAccount = proxyAccountService.getProxyAccount(accountNo, host);
-        if (proxyAccount.getCode() !=200) {
+        if (proxyAccount.getCode() != 200) {
             log.warn("账号{}获取失败,code:{},message:{}", accountNo, proxyAccount.getCode(), proxyAccount.getMessage());
             //ReferenceCountUtil.release(handshakeByteBuf);
             //  closeOnFlush(ctx.channel());
@@ -298,26 +318,6 @@ public class DispatcherHandler extends ChannelInboundHandlerAdapter {
         GlobalTrafficShapingHandler orSetGroupGlobalTrafficShapingHandler = TrafficControllerCache.putIfAbsent(accountNo, ctx.executor(), readLimit, writeLimit);
         //因为没有fireChannel
         ctx.pipeline().addFirst(orSetGroupGlobalTrafficShapingHandler);
-    }
-
-    /**
-     * 发送握手数据，并且提升为ws协议
-     */
-    private void sendNewPackageToClient(ChannelHandlerContext ctx, final ByteBuf handshakeByteBuf, Channel inboundChannel, ProxyAccount proxyAccount) {
-        Bootstrap client = NettyClientFactory.getClient();
-        ChannelFuture f = client.connect(proxyAccount.getV2rayHost(), proxyAccount.getV2rayPort());
-        outboundChannel = f.channel();
-        outboundChannel.pipeline().addLast(new ReceiverHandler(inboundChannel));
-        //Success or failure
-        f.addListener((ChannelFutureListener) future -> {
-            if (future.isSuccess()) {
-                writeToOutBoundChannel(handshakeByteBuf, ctx);
-            } else {
-                release(handshakeByteBuf);
-                closeOnFlush(inboundChannel,outboundChannel);
-
-            }
-        });
     }
 
     /*private Bootstrap getMuxClient(Channel inboundChannel) {
@@ -345,32 +345,24 @@ public class DispatcherHandler extends ChannelInboundHandlerAdapter {
 
     }*/
 
-    private static class NettyClientFactory {
-        private static Bootstrap b = null;
-        private static final EventLoopGroup clientGroup = new NioEventLoopGroup(0, new DefaultThreadFactory("client"));
-        public static Bootstrap getClient() {
-            if (b != null) return b;
-            synchronized (NettyClientFactory.class) {
-                if (b != null) return b;
-                b = new Bootstrap();
-                b.group(clientGroup)
-                        .channel(NioSocketChannel.class).handler(new ChannelInitializer<SocketChannel>() {
+    /**
+     * 发送握手数据，并且提升为ws协议
+     */
+    private void sendNewPackageToClient(ChannelHandlerContext ctx, final ByteBuf handshakeByteBuf, Channel inboundChannel, ProxyAccount proxyAccount) {
+        Bootstrap client = NettyClientFactory.getClient();
+        ChannelFuture f = client.connect(proxyAccount.getV2rayHost(), proxyAccount.getV2rayPort());
+        outboundChannel = f.channel();
+        outboundChannel.pipeline().addLast(new ReceiverHandler(inboundChannel));
+        //Success or failure
+        f.addListener((ChannelFutureListener) future -> {
+            if (future.isSuccess()) {
+                writeToOutBoundChannel(handshakeByteBuf, ctx);
+            } else {
+                release(handshakeByteBuf);
+                closeOnFlush(inboundChannel, outboundChannel);
 
-                    @Override
-                    protected void initChannel(SocketChannel ch) {
-                        ch.pipeline().addLast(new ChannelInboundHandlerAdapter());
-                    }
-                })
-                        .option(ChannelOption.ALLOCATOR, PooledByteBufAllocator.DEFAULT)
-                        .option(ChannelOption.AUTO_READ, false)
-                        .option(ChannelOption.SO_SNDBUF, 32 * 1024)
-                        .option(ChannelOption.SO_RCVBUF, 32 * 1024)
-                        .option(ChannelOption.WRITE_BUFFER_WATER_MARK, WriteBufferWaterMark.DEFAULT)
-                        .option(ChannelOption.TCP_NODELAY, true);
             }
-            return b;
-
-        }
+        });
     }
 
     /**
@@ -382,7 +374,7 @@ public class DispatcherHandler extends ChannelInboundHandlerAdapter {
             // :空格
             String[] headKV = head.split(": ");
             if (headKV.length != 2) continue;
-            if (headKV[0].trim().toUpperCase().equals(HOST)) {
+            if (headKV[0].trim().equalsIgnoreCase(HOST)) {
                 host = headKV[1].trim();
                 String[] ipAndPort = host.split(":");
                 host = ipAndPort[0];
@@ -409,7 +401,7 @@ public class DispatcherHandler extends ChannelInboundHandlerAdapter {
                 ctx.channel().read();
             } else {
                 //out
-              closeOnFlush(future.channel(),ctx.channel());
+                closeOnFlush(future.channel(), ctx.channel());
 
             }
         });
@@ -436,7 +428,7 @@ public class DispatcherHandler extends ChannelInboundHandlerAdapter {
         if (ConnectionStatsCache.getByHost(accountNo, host) < 1) return;
         TrafficCounter trafficCounter = TrafficControllerCache.getGlobalTrafficShapingHandler(accountNo).trafficCounter();
         long start = System.currentTimeMillis();
-        if ( start- trafficCounter.lastCumulativeTime() >= MAX_INTERVAL_REPORT_TIME_MS) {
+        if (start - trafficCounter.lastCumulativeTime() >= MAX_INTERVAL_REPORT_TIME_MS) {
 
             synchronized (SynchronousPoolUtils.getWeakReference(accountNo + ":reportStat")) {
                 if (System.currentTimeMillis() - trafficCounter.lastCumulativeTime() >= MAX_INTERVAL_REPORT_TIME_MS) {
@@ -445,7 +437,7 @@ public class DispatcherHandler extends ChannelInboundHandlerAdapter {
                     reportFlowStat(writtenBytes, readBytes);
                     //重置
                     trafficCounter.resetCumulativeTime();
-                    log.info("账号:{},连接超过5分钟.上传分段流量统计数据:{}B,耗时:{}ms", getAccountId(), writtenBytes + readBytes,System.currentTimeMillis()-start);
+                    log.info("账号:{},连接超过5分钟.上传分段流量统计数据:{}B,耗时:{}ms", getAccountId(), writtenBytes + readBytes, System.currentTimeMillis() - start);
                 }
 
             }
@@ -464,17 +456,32 @@ public class DispatcherHandler extends ChannelInboundHandlerAdapter {
         TaskService.addTask(reportFlowStatTask);
     }
 
+    private static class NettyClientFactory {
+        private static final EventLoopGroup clientGroup = new NioEventLoopGroup(0, new DefaultThreadFactory("client"));
+        private static Bootstrap b = null;
 
-    /**
-     * Closes the specified channel after all queued write requests are flushed.
-     */
-    static void closeOnFlush(Channel... chs) {
-        if (chs ==null) return;
+        public static Bootstrap getClient() {
+            if (b != null) return b;
+            synchronized (NettyClientFactory.class) {
+                if (b != null) return b;
+                b = new Bootstrap();
+                b.group(clientGroup)
+                        .channel(NioSocketChannel.class).handler(new ChannelInitializer<SocketChannel>() {
 
-        for (Channel ch:chs){
-        if (ch!=null && ch.isActive()) {
-            ch.writeAndFlush(Unpooled.EMPTY_BUFFER).addListener(ChannelFutureListener.CLOSE);
-        }
+                            @Override
+                            protected void initChannel(SocketChannel ch) {
+                                ch.pipeline().addLast(new ChannelInboundHandlerAdapter());
+                            }
+                        })
+                        .option(ChannelOption.ALLOCATOR, PooledByteBufAllocator.DEFAULT)
+                        .option(ChannelOption.AUTO_READ, false)
+                        .option(ChannelOption.SO_SNDBUF, 32 * 1024)
+                        .option(ChannelOption.SO_RCVBUF, 32 * 1024)
+                        .option(ChannelOption.WRITE_BUFFER_WATER_MARK, WriteBufferWaterMark.DEFAULT)
+                        .option(ChannelOption.TCP_NODELAY, true);
+            }
+            return b;
+
         }
     }
 
