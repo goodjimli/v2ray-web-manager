@@ -195,15 +195,16 @@ public class DispatcherHandler extends ChannelInboundHandlerAdapter {
             long start = System.currentTimeMillis();
             // 会阻塞
             proxyAccount = getProxyAccount();
-            //  需要反面会netty线程
+            // 获取不到账号或者连接数已满 ，断开连接
+            if (proxyAccount == null || isFull(proxyAccount)) {
+            ctx.executor().execute(()->{ release(handshakeByteBuf); closeOnFlush(ctx.channel(), outboundChannel);});
+            return;
+            }
+
+            //  需要放回netty线程池
             ctx.executor().execute(() -> {
                 try {
-                    // 获取不到账号 ，断开连接
-                    if (proxyAccount == null || isFull(proxyAccount)) {
-                        release(handshakeByteBuf);
-                        closeOnFlush(ctx.channel(), outboundChannel);
-                        return;
-                    }
+
                     log.info("握手阶段>>>当前账号:{},连接数:{},服务器连接数:{},全局连接数:{},getProxyAccount():{}ms", getAccountId(),
                             ConnectionStatsCache.getByHost(accountNo, host),
                             ConnectionStatsCache.getBySeverInternal(accountNo)
@@ -211,13 +212,12 @@ public class DispatcherHandler extends ChannelInboundHandlerAdapter {
                     proxyIp = proxyAccount.getProxyIp();
                     attachTrafficController(ctx, proxyAccount);
                     sendNewPackageToClient(ctx, handshakeByteBuf, ctx.channel(), proxyAccount);
+                    // 只有这种情况握手状态才能改变
+                    isHandshaking = false;
                 } catch (Exception e) {
                     log.error("建立与v2ray连接阶段发送错误", e);
                     release(handshakeByteBuf);
                     closeOnFlush(ctx.channel(), outboundChannel);
-                } finally {
-
-                    isHandshaking = false;
                 }
             });
 
