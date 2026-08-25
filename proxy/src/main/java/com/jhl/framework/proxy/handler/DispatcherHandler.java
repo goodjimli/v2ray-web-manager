@@ -184,7 +184,6 @@ public class DispatcherHandler extends ChannelInboundHandlerAdapter {
         } catch (Exception e) {
             if (!(e instanceof ReleaseDirectMemoryException))
                 log.warn("解析阶段发生错误:{},e:{}", ((ByteBuf) msg).toString(Charset.defaultCharset()), e.getLocalizedMessage());
-
             closeOnFlush(ctx.channel(), outboundChannel);
             return;
         } finally {
@@ -202,24 +201,36 @@ public class DispatcherHandler extends ChannelInboundHandlerAdapter {
             proxyAccount = getProxyAccount();
             // 获取不到账号或者连接数已满 ，断开连接
             if (proxyAccount == null || isFull(proxyAccount)) {
-            ctx.executor().execute(()->{ release(handshakeByteBuf); closeOnFlush(ctx.channel(), outboundChannel);});
-            return;
+                ctx.executor().execute(()->{
+                    release(handshakeByteBuf);
+                    closeOnFlush(ctx.channel(), outboundChannel);});
+                return;
             }
-            log.info("握手阶段>>>当前账号:{},连接数:{},服务器连接数:{},全局连接数:{},getProxyAccount():{}ms", getAccountId(),
-                    ConnectionStatsCache.getByHost(accountNo, host),
-                    ConnectionStatsCache.getBySeverInternal(accountNo)
-                    , ConnectionStatsCache.getByGlobal(accountNo), System.currentTimeMillis() - start);
-            proxyIp = proxyAccount.getProxyIp();
 
-            //  需要放回netty线程池
+            try {
+
+                proxyIp = proxyAccount.getProxyIp();
+                // 加入Qos控制
+                attachTrafficController(ctx, proxyAccount);
+                log.info("握手阶段>>>当前账号:{},连接数:{},服务器连接数:{},全局连接数:{},getProxyAccount():{}ms", getAccountId(),
+                        ConnectionStatsCache.getByHost(accountNo, host),
+                        ConnectionStatsCache.getBySeverInternal(accountNo)
+                        , ConnectionStatsCache.getByGlobal(accountNo), System.currentTimeMillis() - start);
+            } catch (Exception e) {
+                log.error("建立与v2ray连接阶段发送错误1", e);
+                ctx.executor().execute(()->{
+                    release(handshakeByteBuf);
+                    closeOnFlush(ctx.channel(), outboundChannel);});
+                return;
+            }
+            //  需要放回netty线程
             ctx.executor().execute(() -> {
                 try {
-                    attachTrafficController(ctx, proxyAccount);
                     sendNewPackageToClient(ctx, handshakeByteBuf, ctx.channel(), proxyAccount);
                     // 只有这种情况握手状态才能改变
                     isHandshaking = false;
                 } catch (Exception e) {
-                    log.error("建立与v2ray连接阶段发送错误", e);
+                    log.error("建立与v2ray连接阶段发送错误2", e);
                     release(handshakeByteBuf);
                     closeOnFlush(ctx.channel(), outboundChannel);
                 }
@@ -466,31 +477,29 @@ public class DispatcherHandler extends ChannelInboundHandlerAdapter {
     }
 
     private static class NettyClientFactory {
-        private static final EventLoopGroup clientGroup = new NioEventLoopGroup(0, new DefaultThreadFactory("client"));
-        private static Bootstrap b = null;
+        private static final Bootstrap b ;
+
+        static {
+           b = new Bootstrap();
+           b.group(new NioEventLoopGroup(0, new DefaultThreadFactory("client")))
+                   .channel(NioSocketChannel.class).handler(new ChannelInitializer<SocketChannel>() {
+
+                       @Override
+                       protected void initChannel(SocketChannel ch) {
+                           ch.pipeline().addLast(new ChannelInboundHandlerAdapter());
+                       }
+                   })
+                   .option(ChannelOption.ALLOCATOR, PooledByteBufAllocator.DEFAULT)
+                   .option(ChannelOption.AUTO_READ, false)
+                   .option(ChannelOption.SO_SNDBUF, 32 * 1024)
+                   .option(ChannelOption.SO_RCVBUF, 32 * 1024)
+                   .option(ChannelOption.WRITE_BUFFER_WATER_MARK, WriteBufferWaterMark.DEFAULT)
+                   .option(ChannelOption.TCP_NODELAY, true);
+        }
+
 
         public static Bootstrap getClient() {
-            if (b != null) return b;
-            synchronized (NettyClientFactory.class) {
-                if (b != null) return b;
-                b = new Bootstrap();
-                b.group(clientGroup)
-                        .channel(NioSocketChannel.class).handler(new ChannelInitializer<SocketChannel>() {
-
-                            @Override
-                            protected void initChannel(SocketChannel ch) {
-                                ch.pipeline().addLast(new ChannelInboundHandlerAdapter());
-                            }
-                        })
-                        .option(ChannelOption.ALLOCATOR, PooledByteBufAllocator.DEFAULT)
-                        .option(ChannelOption.AUTO_READ, false)
-                        .option(ChannelOption.SO_SNDBUF, 32 * 1024)
-                        .option(ChannelOption.SO_RCVBUF, 32 * 1024)
-                        .option(ChannelOption.WRITE_BUFFER_WATER_MARK, WriteBufferWaterMark.DEFAULT)
-                        .option(ChannelOption.TCP_NODELAY, true);
-            }
             return b;
-
         }
     }
 
