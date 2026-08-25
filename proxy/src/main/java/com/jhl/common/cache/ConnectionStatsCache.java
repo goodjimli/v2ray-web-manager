@@ -150,7 +150,6 @@ public class ConnectionStatsCache {
     public static void reportConnectionNum(String accountNo, String proxyIp) {
         AccountConnectionStat connectionCounter = ACCOUNT_CONNECTION_COUNT_STATS.getIfPresent(accountNo);
 
-
         if ( connectionCounter != null && System.currentTimeMillis() - connectionCounter.getLastReportTime() > _30S) {
             int internalConnectionCount = connectionCounter.getByServer();
             GlobalConnectionStatTask globalConnectionStatTask =
@@ -159,7 +158,26 @@ public class ConnectionStatsCache {
             //更新上报
             connectionCounter.setLastReportNum(internalConnectionCount);
             connectionCounter.setLastReportTime(System.currentTimeMillis());
-            log.debug("上报提交任务。。。");
+            log.info("{}:{} 30s上报连接数任务:{}", accountNo,proxyIp,internalConnectionCount );
         }
+    }
+
+    /**断开连接 上报0
+     *
+     * @param accountNo
+     * @param proxyIp
+     */
+    public static void reportConnection0(String accountNo, String proxyIp) {
+        AccountConnectionStat connectionCounter = ACCOUNT_CONNECTION_COUNT_STATS.getIfPresent(accountNo);
+
+
+
+            GlobalConnectionStatTask globalConnectionStatTask =
+                    new GlobalConnectionStatTask(accountNo, proxyIp, 0);
+            TaskService.addTask(globalConnectionStatTask);
+            //更新上报
+            connectionCounter.setLastReportNum(0);
+            connectionCounter.setLastReportTime(System.currentTimeMillis());
+
     }
 }

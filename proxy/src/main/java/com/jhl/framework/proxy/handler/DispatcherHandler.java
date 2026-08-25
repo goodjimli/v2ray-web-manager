@@ -51,15 +51,15 @@ public class DispatcherHandler extends ChannelInboundHandlerAdapter {
     /**
      * proxy端配置数据
      */
-    final ProxyConstant proxyConstant;
+    final  ProxyConstant proxyConstant;
     private final ProxyAccountService proxyAccountService;
-    private Channel outboundChannel;
-    private String accountNo;
-    private String host;
-    private boolean isHandshaking = true;
-    private Long version = null;
-    private String proxyIp = null;
-    private ProxyAccountWrapper proxyAccount = null;
+    private  Channel outboundChannel;
+    private  String accountNo;
+    private  String host;
+    private  boolean isHandshaking = true;
+    private  Long version = null;
+    private  String proxyIp = null;
+    private  ProxyAccountWrapper proxyAccount = null;
 
     public DispatcherHandler(ProxyConstant proxyConstant, ProxyAccountService proxyAccountService) {
         this.proxyConstant = proxyConstant;
@@ -126,22 +126,20 @@ public class DispatcherHandler extends ChannelInboundHandlerAdapter {
     public void channelInactive(ChannelHandlerContext ctx) {
         if (outboundChannel != null ) {
             closeOnFlush(outboundChannel);
-            return;
         }
 
         if ( accountNo == null || proxyAccount == null){
-            closeOnFlush(ctx.channel());
             return;
         }
         //使用业务线程来执行逻辑代码
-        BUSINESS_GROUP.execute(() -> {
+        BUSINESS_GROUP.submit(() -> {
 
             //减少channel 引用计数
             ConnectionStatsCache.decrement(accountNo, host);
-
             if (proxyIp != null) ConnectionStatsCache.reportConnectionNum(accountNo, proxyIp);
-
-            if (ConnectionStatsCache.getByHost(accountNo, host) < 1) {
+            int accountHostNum = ConnectionStatsCache.getByHost(accountNo, host);
+            //log.info("{}:ConnectionStatsCache.getByHost(accountNo, host):{}", accountNo, accountHostNum);
+            if (accountHostNum < 1) {
                 GlobalTrafficShapingHandler globalTrafficShapingHandler = TrafficControllerCache.getGlobalTrafficShapingHandler(accountNo);
                 if (globalTrafficShapingHandler == null) return;
                 TrafficCounter trafficCounter = globalTrafficShapingHandler.trafficCounter();
@@ -151,10 +149,14 @@ public class DispatcherHandler extends ChannelInboundHandlerAdapter {
                 reportFlowStat(writtenBytes, readBytes);
                 log.info("账号:{},当前服务器完全断开连接,累计字节:{}B", getAccountId(), writtenBytes + readBytes);
                 TrafficControllerCache.releaseGroupGlobalTrafficShapingHandler(accountNo);
+                // byte !上报0连接数 ,
+                 ConnectionStatsCache.reportConnection0(accountNo, proxyIp);
             }
+
             //关闭 返回原来的worker线程执行
-            ctx.executor().execute(() -> closeOnFlush(ctx.channel()));
-        });
+               // closeOnFlush(ctx.channel());
+           ctx.executor().execute(() -> closeOnFlush(ctx.channel()));
+          });
 
 
 
