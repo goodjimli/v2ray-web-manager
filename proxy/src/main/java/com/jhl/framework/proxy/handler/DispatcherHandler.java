@@ -34,6 +34,8 @@ import java.io.IOException;
 import java.nio.charset.Charset;
 import java.util.UUID;
 
+import static com.jhl.framework.proxy.ProxyServer.WORKER_GROUP;
+
 /**
  * TODO 重构
  */
@@ -284,8 +286,8 @@ public class DispatcherHandler extends ChannelInboundHandlerAdapter {
 
         if (globalConnections > currentMaxConnection) {
             reportConnectionLimit();
-            log.warn("已经触发最大连接数上限，当前允许最大值:{}，" +
-                    "后续一个小时账号全局连接数仅允许最大值半数接入", currentMaxConnection);
+            log.warn("{}已经触发最大连接数上限，当前允许最大值:{}，" +
+                    "后续一个小时账号全局连接数仅允许最大值半数接入", accountNo,currentMaxConnection);
             return true;
         }
         return false;
@@ -310,14 +312,19 @@ public class DispatcherHandler extends ChannelInboundHandlerAdapter {
      * @param proxyAccount ProxyAccount
      */
     private void attachTrafficController(ChannelHandlerContext ctx, ProxyAccountWrapper proxyAccount) {
+          long start =System.currentTimeMillis();
         Long readLimit = proxyAccount.getUpTrafficLimit() * 1000;
         Long writeLimit = proxyAccount.getDownTrafficLimit() * 1000;
         //触发最大连接数，惩罚性减低连接数1小时
         //加入流量控制
         //保持对全局的控制，不修改key
-        GlobalTrafficShapingHandler orSetGroupGlobalTrafficShapingHandler = TrafficControllerCache.putIfAbsent(accountNo, ctx.executor(), readLimit, writeLimit);
+        GlobalTrafficShapingHandler orSetGroupGlobalTrafficShapingHandler = TrafficControllerCache.putIfAbsent(accountNo, WORKER_GROUP, readLimit, writeLimit);
         //因为没有fireChannel
         ctx.pipeline().addFirst(orSetGroupGlobalTrafficShapingHandler);
+        long end =System.currentTimeMillis();
+        if (end - start > 100) {
+            log.info("{}添加Qos大于100ms:{}ms", accountNo, end - start);
+        }
     }
 
     /*private Bootstrap getMuxClient(Channel inboundChannel) {

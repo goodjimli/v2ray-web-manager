@@ -32,8 +32,8 @@ public final class ProxyServer {
     ProxyConstant proxyConstant;
     @Autowired
     ProxyAccountService proxyAccountService;
-    private static EventLoopGroup bossGroup = new NioEventLoopGroup(1, new DefaultThreadFactory("boss"));
-    private static EventLoopGroup workerGroup = new NioEventLoopGroup(0, new DefaultThreadFactory("worker"));
+    private static final EventLoopGroup BOSS_GROUP = new NioEventLoopGroup(1, new DefaultThreadFactory("boss"));
+    public static final EventLoopGroup WORKER_GROUP = new NioEventLoopGroup(0, new DefaultThreadFactory("worker"));
 
     @PostConstruct
     public void initNettyServer() {
@@ -61,7 +61,7 @@ public final class ProxyServer {
             // .childOption(ChannelOption.SO_KEEPALIVE,true)
             //.childOption(NioChannelOption.of(StandardSocketOptions.SO_KEEPALIVE),true);
             // ResourceLeakDetector.setLevel(ResourceLeakDetector.Level.ADVANCED);
-            b.group(bossGroup, workerGroup)
+            b.group(BOSS_GROUP, WORKER_GROUP)
                     .channel(NioServerSocketChannel.class)
                     //    .handler(new LoggingHandler(LogLevel.ERROR))
                     .childHandler(new ChannelInitializer<SocketChannel>() {
@@ -83,12 +83,12 @@ public final class ProxyServer {
 
     @PreDestroy
     public void preDestroy() throws InterruptedException {
-        bossGroup.shutdownGracefully();
-        workerGroup.shutdownGracefully().addListener(future -> {
+        BOSS_GROUP.shutdownGracefully();
+        WORKER_GROUP.shutdownGracefully().addListener(future -> {
             log.warn("ReportService 已经关闭....");
             TaskService.destroy();
         });
-        workerGroup.awaitTermination(3, TimeUnit.SECONDS);
+        WORKER_GROUP.awaitTermination(3, TimeUnit.SECONDS);
         log.warn("netty 已经关闭....");
 
 
