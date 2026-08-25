@@ -29,8 +29,7 @@ import java.util.concurrent.TimeUnit;
 @Component
 public final class ProxyServer {
 
-    private static final int DEFAULT_EVENT_LOOP_THREADS = Math.max(1, SystemPropertyUtil.getInt(
-            "io.netty.eventLoopThreads", NettyRuntime.availableProcessors() * 2)); ;
+
 
     @Autowired
     ProxyConstant proxyConstant;
@@ -39,7 +38,7 @@ public final class ProxyServer {
 
 
     private static final EventLoopGroup BOSS_GROUP = new NioEventLoopGroup(1, new DefaultThreadFactory("boss"));
-    public static final EventLoopGroup WORKER_GROUP = new NioEventLoopGroup(DEFAULT_EVENT_LOOP_THREADS+1, new DefaultThreadFactory("worker"));
+    public static final EventLoopGroup WORKER_GROUP = new NioEventLoopGroup(0, new DefaultThreadFactory("worker"));
 
     @PostConstruct
     public void initNettyServer() {

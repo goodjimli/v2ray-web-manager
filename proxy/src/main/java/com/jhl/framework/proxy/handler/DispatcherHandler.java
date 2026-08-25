@@ -46,8 +46,8 @@ public class DispatcherHandler extends ChannelInboundHandlerAdapter {
     private static final String HOST = "HOST";
     private static final Long MAX_INTERVAL_REPORT_TIME_MS = 1000 * 60 * 5L;
     // 跑业务、阻塞任务线程
-    private static final EventExecutorGroup businessGroup =
-            new DefaultEventExecutorGroup(4,new DefaultThreadFactory("buz-"));
+    private static final EventExecutorGroup BUSINESS_GROUP =
+            new DefaultEventExecutorGroup(4,new DefaultThreadFactory("buz"));
     /**
      * proxy端配置数据
      */
@@ -96,7 +96,7 @@ public class DispatcherHandler extends ChannelInboundHandlerAdapter {
             //异步
             //ConnectionStatsCache.reportConnectionNum(accountNo, proxyIp);
             //异步
-            businessGroup.submit(()-> reportFlowStat());
+            BUSINESS_GROUP.submit(()-> reportFlowStat());
         } catch (Exception e) {
             if (!(e instanceof ReleaseDirectMemoryException)) {
                 log.error("数据交互发生异常：", e);
@@ -124,37 +124,40 @@ public class DispatcherHandler extends ChannelInboundHandlerAdapter {
 
     @Override
     public void channelInactive(ChannelHandlerContext ctx) {
-        if (outboundChannel != null) {
+        if (outboundChannel != null ) {
             closeOnFlush(outboundChannel);
+            return;
         }
 
-        if (accountNo == null || proxyAccount == null) return;
-
-        //减少channel 引用计数
-        ConnectionStatsCache.decrement(accountNo, host);
-
-        if (proxyIp != null) ConnectionStatsCache.reportConnectionNum(accountNo, proxyIp);
-
-       /* log.info("{}账号关闭连接后:{},服务器:{},全局:{}", getAccountId(), accountConnections,
-                ConnectionStatsCache.getBySeverInternal(accountNo),
-                ConnectionStatsCache.getByGlobal(accountNo));*/
-
-
-        if (ConnectionStatsCache.getByHost(accountNo, host) < 1) {
-            GlobalTrafficShapingHandler globalTrafficShapingHandler = TrafficControllerCache.getGlobalTrafficShapingHandler(accountNo);
-            if (globalTrafficShapingHandler == null) return;
-            TrafficCounter trafficCounter = globalTrafficShapingHandler.trafficCounter();
-            long writtenBytes = trafficCounter.cumulativeWrittenBytes();
-            long readBytes = trafficCounter.cumulativeReadBytes();
-            //统计流量
-            reportFlowStat(writtenBytes, readBytes);
-            log.info("账号:{},当前服务器完全断开连接,累计字节:{}B", getAccountId(), writtenBytes + readBytes);
-            //   log.info("当前{},累计读字节:{}", accountNo, readBytes);
-            TrafficControllerCache.releaseGroupGlobalTrafficShapingHandler(accountNo);
-            // ConnectionStatsService.delete(getAccountId());
+        if ( accountNo == null || proxyAccount == null){
+            closeOnFlush(ctx.channel());
+            return;
         }
+        //使用业务线程来执行逻辑代码
+        BUSINESS_GROUP.execute(() -> {
 
-        closeOnFlush(ctx.channel());
+            //减少channel 引用计数
+            ConnectionStatsCache.decrement(accountNo, host);
+
+            if (proxyIp != null) ConnectionStatsCache.reportConnectionNum(accountNo, proxyIp);
+
+            if (ConnectionStatsCache.getByHost(accountNo, host) < 1) {
+                GlobalTrafficShapingHandler globalTrafficShapingHandler = TrafficControllerCache.getGlobalTrafficShapingHandler(accountNo);
+                if (globalTrafficShapingHandler == null) return;
+                TrafficCounter trafficCounter = globalTrafficShapingHandler.trafficCounter();
+                long writtenBytes = trafficCounter.cumulativeWrittenBytes();
+                long readBytes = trafficCounter.cumulativeReadBytes();
+                //统计流量
+                reportFlowStat(writtenBytes, readBytes);
+                log.info("账号:{},当前服务器完全断开连接,累计字节:{}B", getAccountId(), writtenBytes + readBytes);
+                TrafficControllerCache.releaseGroupGlobalTrafficShapingHandler(accountNo);
+            }
+            //关闭 返回原来的worker线程执行
+            ctx.executor().execute(() -> closeOnFlush(ctx.channel()));
+        });
+
+
+
     }
 
     /**
@@ -190,7 +193,7 @@ public class DispatcherHandler extends ChannelInboundHandlerAdapter {
         }
 
         // 防止阻塞netty work 线程
-        businessGroup.submit(() -> {
+        BUSINESS_GROUP.submit(() -> {
             //step2
             // 获取proxyAccount
 
@@ -202,16 +205,15 @@ public class DispatcherHandler extends ChannelInboundHandlerAdapter {
             ctx.executor().execute(()->{ release(handshakeByteBuf); closeOnFlush(ctx.channel(), outboundChannel);});
             return;
             }
+            log.info("握手阶段>>>当前账号:{},连接数:{},服务器连接数:{},全局连接数:{},getProxyAccount():{}ms", getAccountId(),
+                    ConnectionStatsCache.getByHost(accountNo, host),
+                    ConnectionStatsCache.getBySeverInternal(accountNo)
+                    , ConnectionStatsCache.getByGlobal(accountNo), System.currentTimeMillis() - start);
+            proxyIp = proxyAccount.getProxyIp();
 
             //  需要放回netty线程池
             ctx.executor().execute(() -> {
                 try {
-
-                    log.info("握手阶段>>>当前账号:{},连接数:{},服务器连接数:{},全局连接数:{},getProxyAccount():{}ms", getAccountId(),
-                            ConnectionStatsCache.getByHost(accountNo, host),
-                            ConnectionStatsCache.getBySeverInternal(accountNo)
-                            , ConnectionStatsCache.getByGlobal(accountNo), System.currentTimeMillis() - start);
-                    proxyIp = proxyAccount.getProxyIp();
                     attachTrafficController(ctx, proxyAccount);
                     sendNewPackageToClient(ctx, handshakeByteBuf, ctx.channel(), proxyAccount);
                     // 只有这种情况握手状态才能改变
