@@ -7,12 +7,13 @@ import com.jhl.framework.task.service.TaskService;
 import com.jhl.web.service.ProxyAccountService;
 import io.netty.bootstrap.ServerBootstrap;
 import io.netty.buffer.PooledByteBufAllocator;
-import io.netty.buffer.Unpooled;
 import io.netty.channel.*;
 import io.netty.channel.nio.NioEventLoopGroup;
 import io.netty.channel.socket.SocketChannel;
 import io.netty.channel.socket.nio.NioServerSocketChannel;
+import io.netty.util.NettyRuntime;
 import io.netty.util.concurrent.DefaultThreadFactory;
+import io.netty.util.internal.SystemPropertyUtil;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
@@ -28,12 +29,17 @@ import java.util.concurrent.TimeUnit;
 @Component
 public final class ProxyServer {
 
+    private static final int DEFAULT_EVENT_LOOP_THREADS = Math.max(1, SystemPropertyUtil.getInt(
+            "io.netty.eventLoopThreads", NettyRuntime.availableProcessors() * 2)); ;
+
     @Autowired
     ProxyConstant proxyConstant;
     @Autowired
     ProxyAccountService proxyAccountService;
+
+
     private static final EventLoopGroup BOSS_GROUP = new NioEventLoopGroup(1, new DefaultThreadFactory("boss"));
-    public static final EventLoopGroup WORKER_GROUP = new NioEventLoopGroup(0, new DefaultThreadFactory("worker"));
+    public static final EventLoopGroup WORKER_GROUP = new NioEventLoopGroup(DEFAULT_EVENT_LOOP_THREADS+1, new DefaultThreadFactory("worker"));
 
     @PostConstruct
     public void initNettyServer() {
