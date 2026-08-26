@@ -6,6 +6,7 @@ import com.jhl.framework.proxy.handler.DispatcherHandler;
 import com.jhl.framework.task.service.TaskService;
 import com.jhl.web.service.ProxyAccountService;
 import io.netty.bootstrap.ServerBootstrap;
+import io.netty.buffer.ByteBuf;
 import io.netty.buffer.PooledByteBufAllocator;
 import io.netty.channel.*;
 import io.netty.channel.nio.NioEventLoopGroup;
@@ -77,7 +78,13 @@ public final class ProxyServer {
                     })
                     .childOption(ChannelOption.AUTO_READ, false)
                     .bind(proxyConstant.getLocalPort()).sync()
-                    .addListener((ChannelFutureListener) future -> log.info("Proxying on:" + proxyConstant.getLocalPort() + " ..."));
+                    .addListener((ChannelFutureListener) future ->{
+                                ByteBuf testBuffer = future.channel().alloc().buffer(1);
+                                log.info("使用什么buffer？{},是否是直接内存:{}",future.channel().alloc().getClass().getName(),testBuffer.isDirect());
+                                log.info("netty Proxying on: {}", proxyConstant.getLocalPort() );
+                                testBuffer.release();
+                            }
+                                 );
 
 
         } catch (Exception e) {
