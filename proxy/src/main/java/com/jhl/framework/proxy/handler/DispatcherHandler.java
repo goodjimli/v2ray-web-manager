@@ -96,7 +96,10 @@ public class DispatcherHandler extends ChannelInboundHandlerAdapter {
             //异步
             //ConnectionStatsCache.reportConnectionNum(accountNo, proxyIp);
             //异步
-            BUSINESS_GROUP.submit(()-> reportFlowStat());
+            BUSINESS_GROUP.submit(()-> {
+                ConnectionStatsCache.reportConnectionNum(accountNo, proxyIp);
+                reportFlowStat();
+            });
         } catch (Exception e) {
             if (!(e instanceof ReleaseDirectMemoryException)) {
                 log.error("数据交互发生异常：", e);
@@ -124,9 +127,8 @@ public class DispatcherHandler extends ChannelInboundHandlerAdapter {
 
     @Override
     public void channelInactive(ChannelHandlerContext ctx) {
-        if (outboundChannel != null ) {
-            closeOnFlush(outboundChannel);
-        }
+        closeOnFlush(outboundChannel);
+        closeOnFlush(ctx.channel());
 
         if ( accountNo == null || proxyAccount == null){
             return;
@@ -152,11 +154,7 @@ public class DispatcherHandler extends ChannelInboundHandlerAdapter {
                 // byte !上报0连接数 ,
                  ConnectionStatsCache.reportConnection0(accountNo, proxyIp);
             }
-
-            //关闭 返回原来的worker线程执行
-               // closeOnFlush(ctx.channel());
-           ctx.executor().execute(() -> closeOnFlush(ctx.channel()));
-          });
+        });
 
 
 
