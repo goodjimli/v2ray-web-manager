@@ -158,7 +158,7 @@ public class ConnectionStatsCache {
             //更新上报
             connectionCounter.setLastReportNum(internalConnectionCount);
             connectionCounter.setLastReportTime(System.currentTimeMillis());
-            log.info("{}:{} 30s上报连接数任务:{}", accountNo,proxyIp,internalConnectionCount );
+           // log.info("{}:{} 30s上报连接数任务:{}", accountNo,proxyIp,internalConnectionCount );
         }
     }
 
