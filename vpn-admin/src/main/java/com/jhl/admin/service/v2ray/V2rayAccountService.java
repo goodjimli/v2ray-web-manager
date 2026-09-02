@@ -47,12 +47,18 @@ public class V2rayAccountService {
         V2rayAccount tip = new V2rayAccount();
         tip.setAdd("127.0.0.2");
         Stat stat = statService.createOrGetStat(account);
-        tip.setPs("通知-流量:"+stat.getFlow()/1024/1024/1024+"/"+account.getBandwidth()+"G;流量重置时间:"+Utils.toDateStr(stat.getToDate(),"yyyy-MM-dd HH时"));
-        V2rayAccount tip2 = new V2rayAccount();
-        tip2.setPs("通知-账号有效期至:"+ Utils.toDateStr(account.getToDate(),null));
-        tip2.setAdd("127.0.0.3");
+        tip.setPs("剩余流量:"+String.format("%.1f", (account.getBandwidth()-stat.getFlow()/1024/1024/1024.0))+"GB");
         sb.append("vmess://").append(encoder.encodeToString(JSON.toJSONString(tip).getBytes(StandardCharsets.UTF_8))).append("\n");
+
+        V2rayAccount tip2 = new V2rayAccount();
+        tip2.setPs("流量重置时间:"+ Utils.toDateStr(stat.getToDate(),null));
+        tip2.setAdd("127.0.0.3");
         sb.append("vmess://").append(encoder.encodeToString(JSON.toJSONString(tip2).getBytes(StandardCharsets.UTF_8))).append("\n");
+
+        V2rayAccount tip3 = new V2rayAccount();
+        tip3.setPs("账号有效期至:"+ Utils.toDateStr(account.getToDate(),null));
+        tip3.setAdd("127.0.0.4");
+        sb.append("vmess://").append(encoder.encodeToString(JSON.toJSONString(tip3).getBytes(StandardCharsets.UTF_8))).append("\n");
 
         return sb.toString();
     }

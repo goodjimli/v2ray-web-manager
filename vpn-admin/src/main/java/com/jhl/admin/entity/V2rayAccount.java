@@ -37,6 +37,7 @@ public class V2rayAccount {
      private String host ="";
     private String path="/";
     private String tls = "tls";
+    private boolean mux=true;
 
 
 }
