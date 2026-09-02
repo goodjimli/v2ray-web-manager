@@ -24,12 +24,9 @@ public class AuthInterceptor implements HandlerInterceptor {
     @Override
     public boolean preHandle(HttpServletRequest request, HttpServletResponse response, Object handler) throws Exception {
          boolean result= check(request, response, handler);
-         String methodName="";
-         if (handler instanceof HandlerMethod){
-             HandlerMethod handler1 = (HandlerMethod) handler;
-             methodName=  handler1.getMethod().getName();
-         }
-         log.info(request.getRequestURI()+",methodName:"+methodName+",auth result:"+ result);
+
+
+         log.info("请求ip:{} URI:{} ,请求参数:{} ",getClientIp(request),request.getRequestURI(), JSON.toJSONString(request.getParameterMap()));
         return result;
     }
 
@@ -99,5 +96,51 @@ public class AuthInterceptor implements HandlerInterceptor {
             }
         }
         return  null;
+    }
+
+    public static String getClientIp(HttpServletRequest request) {
+        // 1. 优先检查 X-Forwarded-For
+        String ip = request.getHeader("X-Forwarded-For");
+        if (isValidIp(ip)) {
+            // 如果包含多个IP（用逗号分隔），取第一个，即真实客户端IP[reference:5]
+            int index = ip.indexOf(",");
+            if (index != -1) {
+                ip = ip.substring(0, index).trim();
+            }
+            return ip;
+        }
+
+        // 2. 检查其他常见的代理头
+        ip = request.getHeader("Proxy-Client-IP");
+        if (isValidIp(ip)) {
+            return ip;
+        }
+
+        ip = request.getHeader("WL-Proxy-Client-IP");
+        if (isValidIp(ip)) {
+            return ip;
+        }
+
+        ip = request.getHeader("HTTP_CLIENT_IP");
+        if (isValidIp(ip)) {
+            return ip;
+        }
+
+        ip = request.getHeader("HTTP_X_FORWARDED_FOR");
+        if (isValidIp(ip)) {
+            return ip;
+        }
+
+        ip = request.getHeader("X-Real-IP");
+        if (isValidIp(ip)) {
+            return ip;
+        }
+
+        // 3. 最后的备选方案
+        return request.getRemoteAddr();
+    }
+
+    private static boolean isValidIp(String ip) {
+        return ip != null && !ip.isEmpty() && !"unknown".equalsIgnoreCase(ip);
     }
 }
