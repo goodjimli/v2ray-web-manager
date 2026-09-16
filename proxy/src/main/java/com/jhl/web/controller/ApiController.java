@@ -1,5 +1,6 @@
 package com.jhl.web.controller;
 
+import com.alibaba.fastjson.JSONObject;
 import com.jhl.common.cache.TrafficControllerCache;
 import com.jhl.common.pojo.ProxyAccountWrapper;
 import com.jhl.web.service.ProxyAccountService;
@@ -31,7 +32,9 @@ public class ApiController {
         try {
             if (proxyAccount == null) return Result.builder().code(405).message("accountNo 为空").build();
             String accountNo = proxyAccount.getAccountNo();
+            log.info("/account/del删除缓存账号proxyAccount:{}", JSONObject.toJSONString(proxyAccount));
             proxyAccountService.rmProxyAccountCache(accountNo,proxyAccount.getHost());
+
             v2rayService.rmProxyAccount(proxyAccount.getV2rayHost(), proxyAccount.getV2rayManagerPort(), proxyAccount);
             //重新设置Qos
             GlobalTrafficShapingHandler globalTrafficShapingHandler = TrafficControllerCache.getGlobalTrafficShapingHandler(accountNo);

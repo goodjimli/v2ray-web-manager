@@ -1,5 +1,6 @@
 package com.jhl.framework.proxy.handler;
 
+import com.alibaba.fastjson.JSONObject;
 import com.jhl.common.cache.ConnectionStatsCache;
 import com.jhl.common.cache.TrafficControllerCache;
 import com.jhl.common.constant.ProxyConstant;
@@ -89,9 +90,11 @@ public class DispatcherHandler extends ChannelInboundHandlerAdapter {
         }
 
         try {
-            if (proxyAccountService.interrupted(accountNo, host, version))
+            if (proxyAccountService.interrupted(accountNo, host, version)) {
+                proxyAccountService.rmProxyAccountCache(accountNo,host);
+                log.info("版本不一致删除缓存账号proxyAccount:{},version:{}", JSONObject.toJSONString(proxyAccount),version);
                 throw new ReleaseDirectMemoryException("【当前版本已经更新】抛出异常。统一内存释放");
-
+            }
             writeToOutBoundChannel(msg, ctx);
             //异步
             //ConnectionStatsCache.reportConnectionNum(accountNo, proxyIp);

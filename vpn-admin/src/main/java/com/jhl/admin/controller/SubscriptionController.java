@@ -43,7 +43,7 @@ public class SubscriptionController {
         String result = subscriptionService.subscribe(code);
         byte[] bytes = result.getBytes();
         response.setHeader("Content-Length",bytes.length+"");
-        response.setHeader("Content-Type", MediaType.APPLICATION_OCTET_STREAM_VALUE);
+        response.setHeader("Content-Type", MediaType.TEXT_PLAIN_VALUE);
         response.getOutputStream().write(bytes);
         response.flushBuffer();
     }

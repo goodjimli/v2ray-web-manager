@@ -1,6 +1,7 @@
 package com.jhl.web.service;
 
 import com.alibaba.fastjson.JSON;
+import com.alibaba.fastjson.JSONObject;
 import com.google.common.cache.Cache;
 import com.google.common.cache.CacheBuilder;
 import com.google.common.collect.Maps;
@@ -60,10 +61,12 @@ public class ProxyAccountService {
 
         AtomicInteger reqCountObj = REQUEST_ERROR_COUNT.getIfPresent(accountNo);
         int reqCount = reqCountObj == null ? 0 : reqCountObj.get();
-        if ( proxyAccount.getCode() !=200 && reqCount < BEGIN_BLOCK) {
+        if ( proxyAccount.getCode()!=200 && reqCount < BEGIN_BLOCK) {
+            log.info("getRemotePAccount原因 accountNo:{},host:{},code:{}",accountNo,host,proxyAccount.getCode());
             synchronized (SynchronousPoolUtils.getWeakReference(getKey(accountNo, host + ":getRemotePAccount"))) {
                 proxyAccount = PA_MAP.getIfPresent(getKey(accountNo, host));
                 if (proxyAccount != null && proxyAccount.getCode()==200 ) {return proxyAccount;}
+                log.info("proxyAccount == null && proxyAccount.getCode()!=200:{}", JSONObject.toJSONString(proxyAccount));
                 //远程请求，获取信息
                 proxyAccount = getRemotePAccount(accountNo, host);
                 proxyAccount.setAccountNo(accountNo);
@@ -74,7 +77,7 @@ public class ProxyAccountService {
                 if (proxyAccount.getCode() !=200) {
                     AtomicInteger counter = REQUEST_ERROR_COUNT.getIfPresent(accountNo);
                     if (counter != null) {
-                        counter.addAndGet(1);
+                        counter.incrementAndGet();
                     } else {
                         REQUEST_ERROR_COUNT.put(accountNo, new AtomicInteger(1));
                     }
@@ -137,22 +140,15 @@ public class ProxyAccountService {
     }*/
 
     public boolean interrupted(String accountNo, String host, Long ctxContextVersion) {
-        boolean result = true;
-        try {
-            ProxyAccountWrapper proxyAccountWrapper = PA_MAP.getIfPresent(getKey(accountNo, host));
+        boolean interrupted = true;
+        ProxyAccountWrapper proxyAccountWrapper = PA_MAP.getIfPresent(getKey(accountNo, host));
 
-            if (proxyAccountWrapper != null) {
-                Long pxVersion = proxyAccountWrapper.getVersion();
+        if (proxyAccountWrapper != null) {
+            Long pxVersion = proxyAccountWrapper.getVersion();
 
-                if (pxVersion != null && pxVersion.equals(ctxContextVersion)) result = false;
-            }
-
-
-        } finally {
-            //移除cache
-            if (result) rmProxyAccountCache(accountNo, host);
+            if (pxVersion != null && pxVersion.equals(ctxContextVersion)) interrupted = false;
         }
-        return result;
+        return interrupted;
 
     }
 
