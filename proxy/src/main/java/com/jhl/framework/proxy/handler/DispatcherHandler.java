@@ -91,8 +91,8 @@ public class DispatcherHandler extends ChannelInboundHandlerAdapter {
 
         try {
             if (proxyAccountService.interrupted(accountNo, host, version)) {
-                proxyAccountService.rmProxyAccountCache(accountNo,host);
-                log.info("版本不一致删除缓存账号proxyAccount:{},version:{}", JSONObject.toJSONString(proxyAccount),version);
+                // bug：中断当前连接，重连即可，不要再重复删除账号缓存
+                // proxyAccountService.rmProxyAccountCache(accountNo,host);
                 throw new ReleaseDirectMemoryException("【当前版本已经更新】抛出异常。统一内存释放");
             }
             writeToOutBoundChannel(msg, ctx);
@@ -111,7 +111,6 @@ public class DispatcherHandler extends ChannelInboundHandlerAdapter {
             closeOnFlush(ctx.channel(), outboundChannel);
 
         }
-
 
     }
 

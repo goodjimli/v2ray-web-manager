@@ -42,7 +42,7 @@ public class ProxyAccountService {
      * value: ProxyAccount
      */
     public final  static Integer ACCOUNT_EXPIRE_TIME = 60;
-    private final Cache<String, ProxyAccountWrapper> PA_MAP = CacheBuilder.newBuilder().maximumSize(1000).expireAfterWrite(ACCOUNT_EXPIRE_TIME, TimeUnit.MINUTES).build();
+    private final Cache<String, ProxyAccountWrapper> PA_MAP = CacheBuilder.newBuilder().maximumSize(1000).expireAfterAccess(ACCOUNT_EXPIRE_TIME, TimeUnit.MINUTES).build();
     /**
      * 屏蔽无限刷admin端
      */
@@ -140,14 +140,14 @@ public class ProxyAccountService {
     }*/
 
     public boolean interrupted(String accountNo, String host, Long ctxContextVersion) {
-        boolean interrupted = true;
+        boolean interrupted = false;
         ProxyAccountWrapper proxyAccountWrapper = PA_MAP.getIfPresent(getKey(accountNo, host));
-
-        if (proxyAccountWrapper != null) {
-            Long pxVersion = proxyAccountWrapper.getVersion();
-
-            if (pxVersion != null && pxVersion.equals(ctxContextVersion)) interrupted = false;
+        if (proxyAccountWrapper==null || ! proxyAccountWrapper.getVersion().equals(ctxContextVersion)){
+            interrupted=true;
+            log.info("版本不一致删除缓存账号proxyAccount:{},version:{}", JSONObject.toJSONString(proxyAccountWrapper),ctxContextVersion);
+            return interrupted;
         }
+
         return interrupted;
 
     }
