@@ -11,6 +11,7 @@ import org.springframework.stereotype.Component;
 @Slf4j
 public class ProxyConstant {
     private int localPort;
+    private String localHost="127.0.0.1";
     private String remoteHost;
     private int remotePort;
     private int maxConnections;

@@ -12,9 +12,7 @@ import io.netty.channel.*;
 import io.netty.channel.nio.NioEventLoopGroup;
 import io.netty.channel.socket.SocketChannel;
 import io.netty.channel.socket.nio.NioServerSocketChannel;
-import io.netty.util.NettyRuntime;
 import io.netty.util.concurrent.DefaultThreadFactory;
-import io.netty.util.internal.SystemPropertyUtil;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
@@ -77,7 +75,7 @@ public final class ProxyServer {
                         }
                     })
                     .childOption(ChannelOption.AUTO_READ, false)
-                    .bind(proxyConstant.getLocalPort()).sync()
+                    .bind(proxyConstant.getLocalHost(),proxyConstant.getLocalPort()).sync()
                     .addListener((ChannelFutureListener) future ->{
                                 ByteBuf testBuffer = future.channel().alloc().buffer(1);
                                 log.info("使用什么buffer？{},是否是直接内存:{}",future.channel().alloc().getClass().getName(),testBuffer.isDirect());
