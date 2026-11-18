@@ -7,6 +7,8 @@ import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.ChannelInboundHandlerAdapter;
 import lombok.extern.slf4j.Slf4j;
 
+import java.io.IOException;
+
 @Slf4j
 public class ReceiverHandler extends ChannelInboundHandlerAdapter {
 
@@ -48,7 +50,11 @@ public class ReceiverHandler extends ChannelInboundHandlerAdapter {
 
     @Override
     public void exceptionCaught(ChannelHandlerContext ctx, Throwable cause) {
-        log.error(" Receiver exceptionCaught:", cause);
+        if (!(cause instanceof IOException)) {
+            log.error("ReceiverHandler exceptionCaught:", cause);
+        }else {
+            log.warn("ReceiverHandler exceptionCaught:{}", cause.getMessage());
+        }
         DispatcherHandler.closeOnFlush(ctx.channel(),inboundChannel);
     }
 

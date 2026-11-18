@@ -122,7 +122,11 @@ public class DispatcherHandler extends ChannelInboundHandlerAdapter {
 
     @Override
     public void exceptionCaught(ChannelHandlerContext ctx, Throwable cause) {
-        if (!(cause instanceof IOException)) log.error("exceptionCaught:", cause);
+        if (!(cause instanceof IOException)) {
+            log.error("accountNo:{},exceptionCaught:",accountNo, cause);
+        }else {
+            log.warn("accountNo:{},exceptionCaught:{}",accountNo, cause.getMessage());
+        }
 
         closeOnFlush(ctx.channel(), outboundChannel);
     }
